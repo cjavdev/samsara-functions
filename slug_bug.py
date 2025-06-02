@@ -1,8 +1,3 @@
-# Called when entering a geofence for a JobSite
-# Fetch an image of the house from the JobSite
-# Upload the image to OpenAI for a paint suggestion image back
-# Send the image back to the client
-
 import datetime
 import requests
 import base64
@@ -49,14 +44,20 @@ def get_media_retrieval(media_retrieval_id):
 
 
 def main(event, _):
-  # # Convert milliseconds timestamp to RFC 3339 format
-  alert_at = event['alertIncidentTime']
-  capture_at = timestamp_to_datetime(int(alert_at)) + datetime.timedelta(seconds=11)
+  # Convert milliseconds timestamp to RFC 3339 format
+  # alertIncidentTime is 10 seconds before the button was clicked.
+  # The video runs 30 seconds long (until 20 seconds after the button was clicked)
+  alert_at = timestamp_to_datetime(int(event['alertIncidentTime']))
   asset_id = event['assetId']
-  print(capture_at)
+
+  # Retrieve images at 3 different times: 3 seconds before, 1 second after, and 3 seconds after.
+  offsets = [7, 11, 14]
+  for offset in offsets:
+    capture_at = alert_at + datetime.timedelta(seconds=offset)
+    media_retrieval_response = create_media_retreival(capture_at, asset_id)
+    media_retrieval_id = media_retrieval_response['data']['retrievalId']
 
   media_retrieval_response = create_media_retreival(capture_at, asset_id)
-  media_retrieval_id = media_retrieval_response['data']['retrievalId']
   # media_retrieval_id = 'e9cc6cb5-8040-4579-b780-00736b29942e'
   print(f"Media retrieval ID: {media_retrieval_id}")
   media_retrieval_response = get_media_retrieval(media_retrieval_id)
@@ -83,7 +84,7 @@ def main(event, _):
       files={
         "image[]": ("image.jpg", open("image.jpg", "rb"), "image/jpeg"),
         "model": (None, "gpt-image-1"),
-        "prompt": (None, "Generate an image of this building with a new paint job with a modern popular color to send the home owner inspiration and a quote to paint the exterior of their home. Remove the surrounding vehicle details captured from the dashcam.")
+        "prompt": (None, "")
       },
       verify=False  # Disable SSL certificate verification
     )
@@ -133,8 +134,8 @@ def main(event, _):
 if __name__ == "__main__":
     event = {
       'SamsaraFunctionTriggerSource': 'alert',
-      'alertConfigurationId': '486d566a-c164-4527-998f-7b859b995dcf',
-      'alertIncidentTime': '1747913819184',
+      'alertConfigurationId': 'c1d30986-6c74-4077-a1c1-7bc3779641fd',
+      'alertIncidentTime': '1748874830839',
       'assetId': '281474994182986',
       'driverId': ''
     }
