@@ -1,0 +1,7 @@
+.env
+__pycache__
+venv/
+fn.zip
+*.jpg
+*.png
+
