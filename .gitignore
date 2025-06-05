@@ -4,4 +4,5 @@ venv/
 fn.zip
 *.jpg
 *.png
+storage/
 

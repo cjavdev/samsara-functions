@@ -27,11 +27,14 @@ pip install -r requirements.txt
 ```
 
 
-## Logging - Log
+## Logging
+
+### Local Log
 
 The "hello, world" of Samsara Functions.
 
 See [log.py](./log.py) for a simple logging function to test output.
+
 
 ## Use event parameters - Assign an issue to a manager
 
@@ -40,5 +43,18 @@ configuration. Automatically assign all new issues to a maintenance manager.
 
 See [auto_assign_issue.py](./auto_assign_issue.py).
 
-## Shedule function executions - Generate a daily report and email to executives
+## Storage and Database
 
+You can work with files in S3. See [db.py](./db.py) for a simple approach to a
+JSON based key value store using files in S3.
+
+
+---
+
+## Publishing
+
+```bash
+zip fn.zip *.py
+```
+
+Upload the zip file to create a new Samsara Function.

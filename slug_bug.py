@@ -4,7 +4,10 @@ import base64
 import os
 import json
 
+from db import DB
+
 base_url = 'https://api.samsara.com'
+db_name = "slug_bug"
 
 
 def timestamp_to_datetime(timestamp_ms):
@@ -13,10 +16,18 @@ def timestamp_to_datetime(timestamp_ms):
 
 
 def create_media_retreival(alert_at, asset_id):
+  # If we've already created a media retrieval for this asset and alert time, return the existing one.
+  db = DB(name=db_name)
+  if db.get(f'media_retrieval_{asset_id}_{alert_at.isoformat()}'):
+    print(f"Media retrieval already exists for {asset_id} at {alert_at.isoformat()}")
+    return db.get(f'media_retrieval_{asset_id}_{alert_at.isoformat()}')
+
+  print(f"Creating media retrieval for {asset_id} at {alert_at.isoformat()}")
+  # Otherwise, create a new media retrieval request.
   response = requests.post(
     f'{base_url}/cameras/media/retrieval',
     headers={
-      'Authorization': f'Bearer {os.environ["SAMSARA_KEY"]}'
+      'Authorization': f'Bearer {os.getenv("SAMSARA_KEY")}'
     },
     json={
       'startTime': alert_at.isoformat(),
@@ -26,10 +37,13 @@ def create_media_retreival(alert_at, asset_id):
       'inputs': ['dashcamRoadFacing']
     }
   )
-  print("Media retrieval response:")
-  print(response.json())
-  return response.json()
-
+  print(response)
+  retrieval = response.json()['data']
+  print(f"Media retrieval with ID {retrieval['retrievalId']} created for {asset_id} at {alert_at.isoformat()}")
+  db.set(f'media_retrieval_{asset_id}_{alert_at.isoformat()}', retrieval)
+  print("Media retrieval in db:")
+  print(db.get(f'media_retrieval_{asset_id}_{alert_at.isoformat()}'))
+  return retrieval
 
 def get_media_retrieval(media_retrieval_id):
   response = requests.get(
@@ -38,97 +52,175 @@ def get_media_retrieval(media_retrieval_id):
       'Authorization': f'Bearer {os.environ["SAMSARA_KEY"]}'
     }
   )
-  print("Media retrieval response:")
-  print(response.json())
-  return response.json()
+  return response.json()['data']['media'][0]
 
 
-def main(event, _):
-  # Convert milliseconds timestamp to RFC 3339 format
+def get_available_slug_bug_rounds():
+  """ Check to see if all media retrievals are ready.
+
+  If all are available, add it to the list and return.
+  """
+  db = DB(name=db_name)
+  keys = db.list_keys()
+  slug_bug_keys = []
+  for key in keys:
+    if key.startswith('slug_bug_'):
+      slug_bug_keys.append(key)
+
+
+  slug_bug_rounds = []
+  for key in slug_bug_keys:
+    slug_bug = db.get(key)
+    if slug_bug['status'] == 'pending':
+      print(f"Slug bug checker found for {slug_bug['asset_id']} at {slug_bug['alert_time']}. Starting...")
+      slug_bug = check_media_retrieval_status(slug_bug)
+      db.set(key, slug_bug)
+
+      if slug_bug['status'] == 'available':
+        # Pass all images to OpenAI to check for slug bugs in the images.
+        slug_bug_rounds.append(slug_bug)
+
+  return slug_bug_rounds
+
+
+def mark_slug_bug_round_as_done(slug_bug_round):
+  print(f"Marking slug bug round as done: {slug_bug_round}")
+  db = DB(name=db_name)
+  key = f"slug_bug_{slug_bug_round['asset_id']}_{slug_bug_round['alert_time']}"
+  db.set(key, {
+    **slug_bug_round,
+    'status': 'done'
+  })
+
+
+def identify_slug_bugs(slug_bug):
+  user_content = [{
+    "type": "input_text",
+    "text": "Identify slug bugs in the images."
+  }]
+  for media_item in slug_bug['media']:
+    user_content.append({
+      "type": "input_image",
+      "image_url": media_item['urlInfo']['url']
+    })
+
+  print(user_content)
+
+  # Make the API request to OpenAI for image editing
+  openai_response = requests.post(
+    "https://api.openai.com/v1/responses",
+    headers={
+      "Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}",
+      "Content-Type": "application/json"
+    },
+    data=json.dumps({
+      "model": "gpt-4.1-mini",
+      "input": [{
+        "role": "user",
+        "content": user_content
+      }],
+      "text": {
+        "format": {
+          "type": "json_schema",
+          "name": "slug_bug_evaluation",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "color": {
+                "type": ["string", "null"],
+                "description": "The color of the slug bug.",
+                "enum": ["n/a", "red", "green", "blue", "yellow", "purple", "orange", "pink", "brown", "gray", "black", "white"]
+              },
+              "has_slug_bug": {
+                "type": "boolean",
+                "description": "Whether the image has a VW bug or VW beetle in it or not."
+              }
+            },
+            "required": ["color", "has_slug_bug"],
+            "additionalProperties": False
+          },
+          "strict": True
+        }
+      }
+    }),
+    verify=False
+  )
+
+  json_response = openai_response.json()
+  print(json_response)
+  result = json.loads(json_response['output'][0]['content'][0]['text'])
+  return result['color'], result['has_slug_bug']
+
+
+def check_media_retrieval_status(slug_bug):
+  media = slug_bug['media']
+  updated_media = []
+  slug_bug['status'] = 'available'
+
+  for media_item in media:
+    media_retrieval = get_media_retrieval(media_item['retrievalId'])
+    updated_media.append(media_item | media_retrieval)
+    if media_retrieval['status'] != 'available':
+      print(f"Media retrieval {media_item['retrievalId']} is not available")
+      slug_bug['status'] = 'pending'
+    else:
+      print(f"Media retrieval {media_item['retrievalId']} is available")
+
+  slug_bug['media'] = updated_media
+  return slug_bug
+
+
+# Entry point for part 1: On Driver Recorded event, create retrieval requests
+# for images around the time the button was clicked.
+def start(event, _):
+  db = DB(name=db_name)
+
   # alertIncidentTime is 10 seconds before the button was clicked.
-  # The video runs 30 seconds long (until 20 seconds after the button was clicked)
-  alert_at = timestamp_to_datetime(int(event['alertIncidentTime']))
+  # The video runs 30 seconds (until 20 seconds after the button was clicked)
+  alert_time = event['alertIncidentTime']
+  alert_at = timestamp_to_datetime(int(alert_time))
   asset_id = event['assetId']
 
-  # Retrieve images at 3 different times: 3 seconds before, 1 second after, and 3 seconds after.
-  offsets = [7, 11, 14]
+  if db.get(f'slug_bug_{asset_id}_{alert_time}'):
+    print(f"Slug bug checker already exists for {asset_id} at {alert_time}")
+    return
+
+  # Retrieve road facing images at 3 different times: 3 seconds before, 1 second
+  # after, and 3 seconds after clicking the button.
+  offsets = [14, 11, 7]
+  media = []
   for offset in offsets:
     capture_at = alert_at + datetime.timedelta(seconds=offset)
-    media_retrieval_response = create_media_retreival(capture_at, asset_id)
-    media_retrieval_id = media_retrieval_response['data']['retrievalId']
+    media_retrieval = create_media_retreival(capture_at, asset_id)
+    media.append(media_retrieval)
 
-  media_retrieval_response = create_media_retreival(capture_at, asset_id)
-  # media_retrieval_id = 'e9cc6cb5-8040-4579-b780-00736b29942e'
-  print(f"Media retrieval ID: {media_retrieval_id}")
-  media_retrieval_response = get_media_retrieval(media_retrieval_id)
-  print(json.dumps(media_retrieval_response, indent=2))
+  # Write to db and wait for the media retrieval to be available.
+  db.set(f'slug_bug_{asset_id}_{alert_time}', {
+    'media': media,
+    'alert_at': alert_at.isoformat(),
+    'asset_id': asset_id,
+    'alert_time': alert_time,
+    'status': 'pending'
+  })
 
-  # Download the image
-  if media_retrieval_response['data']['media'][0]['status'] == 'available':
-    image_url = media_retrieval_response['data']['media'][0]['urlInfo']['url']
-    print(f"Image URL: {image_url}")
-    print(f"Downloading image to image-{alert_at}.jpg")
-    # Download the image
-    response = requests.get(image_url)
-    with open(f'image-{alert_at}.jpg', 'wb') as f:
-      f.write(response.content)
 
-    print("Generating a paint suggestion...")
+# Entry point for part 2: On a timer, check the status of the media retrievals
+# and identify slug bugs in the images if they are available.
+def check():
+  slug_bug_rounds = get_available_slug_bug_rounds()
+  if len(slug_bug_rounds) == 0:
+    print("No slug bug round media is available, yet.")
+    return
 
-    # Make the API request to OpenAI for image editing
-    openai_response = requests.post(
-      "https://api.openai.com/v1/images/edits",
-      headers={
-        "Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"
-      },
-      files={
-        "image[]": ("image.jpg", open("image.jpg", "rb"), "image/jpeg"),
-        "model": (None, "gpt-image-1"),
-        "prompt": (None, "")
-      },
-      verify=False  # Disable SSL certificate verification
-    )
-
-    # Parse the response and save the image
-    if openai_response.status_code == 200:
-      response_data = openai_response.json()
-      if response_data.get('data') and len(response_data['data']) > 0:
-        # Decode base64 image data and save to file
-        image_data = base64.b64decode(response_data['data'][0]['b64_json'])
-        file_name = f'paint-suggestion-{alert_at}.png'
-        with open(file_name, 'wb') as f:
-          f.write(image_data)
-        print(f"Successfully generated and saved the edited image as {file_name}")
-      else:
-        print("No image data found in the response")
+  for slug_bug_round in slug_bug_rounds:
+    color, found = identify_slug_bugs(slug_bug_round)
+    if found:
+      print(f"Slug Bug {color}! 🤜")
     else:
-      print(f"Error: API request failed with status code {openai_response.status_code}")
-      print(openai_response.text)
+      print("No slug bug found.")
 
-    # Get the location of the vehicle:
-    # Get the vehicle location from Samsara API
-    location_response = requests.get(
-      f'{base_url}/fleet/vehicles/locations',
-      headers={
-        'Authorization': f'Bearer {os.environ["SAMSARA_KEY"]}',
-        'accept': 'application/json'
-      },
-      params={
-        'time': capture_at.isoformat(),
-        'vehicleIds': asset_id
-      }
-    )
+    mark_slug_bug_round_as_done(slug_bug_round)
 
-    if location_response.status_code == 200:
-      location_data = location_response.json()
-      if location_data.get('data') and len(location_data['data']) > 0:
-        address = location_data['data'][0]['location']['reverseGeo']['formattedLocation']
-        print(f"Vehicle location: {address}")
-    else:
-      print(f"Error: Location API request failed with status code {location_response.status_code}")
-      print(location_response.text)
-  else:
-    print("No media found")
 
 
 if __name__ == "__main__":
@@ -139,4 +231,23 @@ if __name__ == "__main__":
       'assetId': '281474994182986',
       'driverId': ''
     }
-    main(event, None)
+    # start(event, None)
+    check()
+
+    # identify_slug_bugs({
+    #   'media': [
+    #     {
+    #       "status": "available",
+    #       "vehicleId": "281474994182986",
+    #       "input": "dashcamRoadFacing",
+    #       "mediaType": "image",
+    #       "startTime": "2025-05-19T18:28:01.065Z",
+    #       "endTime": "2025-05-19T18:28:01.065Z",
+    #       "availableAtTime": "2025-05-19T20:30:06.632Z",
+    #       "urlInfo": {
+    #         "url": "https://s3.samsara.com/samsara-dashcam-videos/4007512/281474994182986/1747679281065/eX1MRyr3o6-camera-still-1747679281065.lepton.jpeg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIA3LY3RNWSICV3SE5N%2F20250602%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20250602T213559Z&X-Amz-Expires=28800&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC0aCXVzLXdlc3QtMiJHMEUCIQCobNEfzvOfpOd03QnAz4TTtKQrChwl8vp7D7GlTdM9swIgNpy3cD1SRZuBDHGF4WXfdU4hbzM%2BRvWiVp8OfS9tWDIq5gMI9v%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FARAEGgw3ODEyMDQ5NDIyNDQiDC0pMvRas9EsUbcwXSq6A5G%2FoENUVUi6R8b9rLqr%2Fsr5x%2FXeTuLyt1NT1cr8SVoEtpBBiTOlkd4AvO7gFLGpwPzkRoBWiUrYRvywoHy1cAPfNN4yF%2FmKBrjtSZp%2BuFAwgedWyMrI9p%2Fa756ap743t27ij3GxA8S9EyFbxkgsbpVqtIXzD%2Fuj21n%2FkM9Odk5hpECROZbCEhyqa%2F9k%2F7sP3nM1RCe87F2wLuEeruWysC7ehhcVjXi%2FoUHSSVi9C89VmAngrmVfc061UXNpfKa20fsh8B4xA%2FDcRHd28T9mPc0m1uR9JWpAyTNcr5HCABHdtkt4PIYz0zy7J7rA6UHFh5kCbxQgVEk1OOxx9RO5WP0zt2vLoDSLMp%2BvobsPc5MQkcJu7wG3OV4AzYEqE%2B0wdeEwfDPwLYCx9iqrFS7KxqdsZH7FjdkWrPOpmLrgrcbn5xlZ6S9dXgK%2Bxo%2Fppr0z2palnhGp%2FJvFLCy1F5BEM8Si1DvJINYKPwaOzREnJNLXSRao3YgwJZzuF3VLguwyl2RA9KOwUZOvSd9ysSo3Hd9qAn6%2BKIRrEVR%2BVkNZHDi1%2F4WccbIY46fYY3vN4yuguwWyhMnkJebyyfMw8p74wQY6pQEfXRqHLxyhSNqQrmiZfkLTA3fGlVNvBJaOnpxyxawj41ZAe7uzFHZRnfGv%2Feh%2BxU8a5IagjHxvZbYBb7HNS3t8MT3s4SAzWa%2Bi5nxKMWNJT18JR2sbsJOpYzzzgBOCJgg6EvCBV6jiYw2OOA8YqN%2F%2Fm%2FicWVIl%2FToRoZPkTcLqoJmR8XvTUL1JSAUD55Od4Z7Nl9bi0hjrob6F4N%2BNTslfrXkwHow%3D&X-Amz-SignedHeaders=host&response-cache-control=max-age%3D28800&response-expires=Tue%2C%2003%20Jun%202025%2005%3A35%3A59%20GMT&X-Amz-Signature=5f959bbc3e746556178b0f87704d1e10e9e1017e638c466d843d7ac099281afa",
+    #         "urlExpiryTime": "2025-06-03T05:35:59.319Z"
+    #       }
+    #     },
+    #   ]
+    # })
