@@ -83,6 +83,23 @@ def get_available_slug_bug_rounds():
   return slug_bug_rounds
 
 
+def notify_players(color):
+  players = [52514325]
+
+  response = requests.post(
+    "https://api.samsara.com/v1/fleet/messages",
+    json={
+      "driverIds": players,
+      "text": f"Slug Bug {color}! 🤜"
+    },
+    headers={
+      "Authorization": f"Bearer {os.environ['SAMSARA_KEY']}"
+    }
+  )
+  print(f"Notifying players of slug bug {color}!")
+  print(response.json())
+
+
 def mark_slug_bug_round_as_done(slug_bug_round):
   print(f"Marking slug bug round as done: {slug_bug_round}")
   db = DB(name=db_name)
@@ -215,6 +232,7 @@ def check():
     color, found = identify_slug_bugs(slug_bug_round)
     if found:
       print(f"Slug Bug {color}! 🤜")
+      notify_players(color)
     else:
       print("No slug bug found.")
 
