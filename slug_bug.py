@@ -37,13 +37,13 @@ def create_media_retreival(alert_at, asset_id):
       'inputs': ['dashcamRoadFacing']
     }
   )
-  print(response)
   retrieval = response.json()['data']
   print(f"Media retrieval with ID {retrieval['retrievalId']} created for {asset_id} at {alert_at.isoformat()}")
   db.set(f'media_retrieval_{asset_id}_{alert_at.isoformat()}', retrieval)
   print("Media retrieval in db:")
   print(db.get(f'media_retrieval_{asset_id}_{alert_at.isoformat()}'))
   return retrieval
+
 
 def get_media_retrieval(media_retrieval_id):
   response = requests.get(
@@ -52,6 +52,7 @@ def get_media_retrieval(media_retrieval_id):
       'Authorization': f'Bearer {os.environ["SAMSARA_KEY"]}'
     }
   )
+  print(response)
   return response.json()['data']['media'][0]
 
 
@@ -66,7 +67,6 @@ def get_available_slug_bug_rounds():
   for key in keys:
     if key.startswith('slug_bug_'):
       slug_bug_keys.append(key)
-
 
   slug_bug_rounds = []
   for key in slug_bug_keys:
@@ -129,7 +129,7 @@ def identify_slug_bugs(slug_bug):
               "color": {
                 "type": ["string", "null"],
                 "description": "The color of the slug bug.",
-                "enum": ["n/a", "red", "green", "blue", "yellow", "purple", "orange", "pink", "brown", "gray", "black", "white"]
+                "enum": ["n/a", "Red", "Green", "Blue", "Yellow", "Purple", "Orange", "Pink", "Brown", "Gray", "Black", "White"]
               },
               "has_slug_bug": {
                 "type": "boolean",
@@ -147,7 +147,6 @@ def identify_slug_bugs(slug_bug):
   )
 
   json_response = openai_response.json()
-  print(json_response)
   result = json.loads(json_response['output'][0]['content'][0]['text'])
   return result['color'], result['has_slug_bug']
 
@@ -233,21 +232,3 @@ if __name__ == "__main__":
     }
     # start(event, None)
     check()
-
-    # identify_slug_bugs({
-    #   'media': [
-    #     {
-    #       "status": "available",
-    #       "vehicleId": "281474994182986",
-    #       "input": "dashcamRoadFacing",
-    #       "mediaType": "image",
-    #       "startTime": "2025-05-19T18:28:01.065Z",
-    #       "endTime": "2025-05-19T18:28:01.065Z",
-    #       "availableAtTime": "2025-05-19T20:30:06.632Z",
-    #       "urlInfo": {
-    #         "url": "https://s3.samsara.com/samsara-dashcam-videos/4007512/281474994182986/1747679281065/eX1MRyr3o6-camera-still-1747679281065.lepton.jpeg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIA3LY3RNWSICV3SE5N%2F20250602%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20250602T213559Z&X-Amz-Expires=28800&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC0aCXVzLXdlc3QtMiJHMEUCIQCobNEfzvOfpOd03QnAz4TTtKQrChwl8vp7D7GlTdM9swIgNpy3cD1SRZuBDHGF4WXfdU4hbzM%2BRvWiVp8OfS9tWDIq5gMI9v%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FARAEGgw3ODEyMDQ5NDIyNDQiDC0pMvRas9EsUbcwXSq6A5G%2FoENUVUi6R8b9rLqr%2Fsr5x%2FXeTuLyt1NT1cr8SVoEtpBBiTOlkd4AvO7gFLGpwPzkRoBWiUrYRvywoHy1cAPfNN4yF%2FmKBrjtSZp%2BuFAwgedWyMrI9p%2Fa756ap743t27ij3GxA8S9EyFbxkgsbpVqtIXzD%2Fuj21n%2FkM9Odk5hpECROZbCEhyqa%2F9k%2F7sP3nM1RCe87F2wLuEeruWysC7ehhcVjXi%2FoUHSSVi9C89VmAngrmVfc061UXNpfKa20fsh8B4xA%2FDcRHd28T9mPc0m1uR9JWpAyTNcr5HCABHdtkt4PIYz0zy7J7rA6UHFh5kCbxQgVEk1OOxx9RO5WP0zt2vLoDSLMp%2BvobsPc5MQkcJu7wG3OV4AzYEqE%2B0wdeEwfDPwLYCx9iqrFS7KxqdsZH7FjdkWrPOpmLrgrcbn5xlZ6S9dXgK%2Bxo%2Fppr0z2palnhGp%2FJvFLCy1F5BEM8Si1DvJINYKPwaOzREnJNLXSRao3YgwJZzuF3VLguwyl2RA9KOwUZOvSd9ysSo3Hd9qAn6%2BKIRrEVR%2BVkNZHDi1%2F4WccbIY46fYY3vN4yuguwWyhMnkJebyyfMw8p74wQY6pQEfXRqHLxyhSNqQrmiZfkLTA3fGlVNvBJaOnpxyxawj41ZAe7uzFHZRnfGv%2Feh%2BxU8a5IagjHxvZbYBb7HNS3t8MT3s4SAzWa%2Bi5nxKMWNJT18JR2sbsJOpYzzzgBOCJgg6EvCBV6jiYw2OOA8YqN%2F%2Fm%2FicWVIl%2FToRoZPkTcLqoJmR8XvTUL1JSAUD55Od4Z7Nl9bi0hjrob6F4N%2BNTslfrXkwHow%3D&X-Amz-SignedHeaders=host&response-cache-control=max-age%3D28800&response-expires=Tue%2C%2003%20Jun%202025%2005%3A35%3A59%20GMT&X-Amz-Signature=5f959bbc3e746556178b0f87704d1e10e9e1017e638c466d843d7ac099281afa",
-    #         "urlExpiryTime": "2025-06-03T05:35:59.319Z"
-    #       }
-    #     },
-    #   ]
-    # })
