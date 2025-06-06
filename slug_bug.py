@@ -83,33 +83,6 @@ def get_available_slug_bug_rounds():
   return slug_bug_rounds
 
 
-def notify_players(color):
-  players = [52514325]
-
-  response = requests.post(
-    "https://api.samsara.com/v1/fleet/messages",
-    json={
-      "driverIds": players,
-      "text": f"Slug Bug {color}! 🤜"
-    },
-    headers={
-      "Authorization": f"Bearer {os.environ['SAMSARA_KEY']}"
-    }
-  )
-  print(f"Notifying players of slug bug {color}!")
-  print(response.json())
-
-
-def mark_slug_bug_round_as_done(slug_bug_round):
-  print(f"Marking slug bug round as done: {slug_bug_round}")
-  db = DB(name=db_name)
-  key = f"slug_bug_{slug_bug_round['asset_id']}_{slug_bug_round['alert_time']}"
-  db.set(key, {
-    **slug_bug_round,
-    'status': 'done'
-  })
-
-
 def identify_slug_bugs(slug_bug):
   user_content = [{
     "type": "input_text",
@@ -120,8 +93,6 @@ def identify_slug_bugs(slug_bug):
       "type": "input_image",
       "image_url": media_item['urlInfo']['url']
     })
-
-  print(user_content)
 
   # Make the API request to OpenAI for image editing
   openai_response = requests.post(
@@ -166,6 +137,32 @@ def identify_slug_bugs(slug_bug):
   json_response = openai_response.json()
   result = json.loads(json_response['output'][0]['content'][0]['text'])
   return result['color'], result['has_slug_bug']
+
+def notify_players(color):
+  players = [52514325]
+
+  response = requests.post(
+    "https://api.samsara.com/v1/fleet/messages",
+    json={
+      "driverIds": players,
+      "text": f"Slug Bug {color}! 🤜"
+    },
+    headers={
+      "Authorization": f"Bearer {os.environ['SAMSARA_KEY']}"
+    }
+  )
+  print(f"Notifying players of slug bug {color}!")
+  print(response.json())
+
+
+def mark_slug_bug_round_as_done(slug_bug_round):
+  print(f"Marking slug bug round as done: {slug_bug_round}")
+  db = DB(name=db_name)
+  key = f"slug_bug_{slug_bug_round['asset_id']}_{slug_bug_round['alert_time']}"
+  db.set(key, {
+    **slug_bug_round,
+    'status': 'done'
+  })
 
 
 def check_media_retrieval_status(slug_bug):
@@ -222,7 +219,7 @@ def start(event, _):
 
 # Entry point for part 2: On a timer, check the status of the media retrievals
 # and identify slug bugs in the images if they are available.
-def check():
+def check(event, _):
   slug_bug_rounds = get_available_slug_bug_rounds()
   if len(slug_bug_rounds) == 0:
     print("No slug bug round media is available, yet.")
