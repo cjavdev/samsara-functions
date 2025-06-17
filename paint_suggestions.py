@@ -31,8 +31,6 @@ def create_media_retreival(alert_at, asset_id):
       'inputs': ['dashcamRoadFacing']
     }
   )
-  print("Media retrieval response:")
-  print(response.json())
   return response.json()
 
 
@@ -43,8 +41,6 @@ def get_media_retrieval(media_retrieval_id):
       'Authorization': f'Bearer {os.environ["SAMSARA_KEY"]}'
     }
   )
-  print("Media retrieval response:")
-  print(response.json())
   return response.json()
 
 
@@ -53,20 +49,15 @@ def main(event, _):
   alert_at = event['alertIncidentTime']
   capture_at = timestamp_to_datetime(int(alert_at)) + datetime.timedelta(seconds=11)
   asset_id = event['assetId']
-  print(capture_at)
 
   media_retrieval_response = create_media_retreival(capture_at, asset_id)
   media_retrieval_id = media_retrieval_response['data']['retrievalId']
-  # media_retrieval_id = 'e9cc6cb5-8040-4579-b780-00736b29942e'
-  print(f"Media retrieval ID: {media_retrieval_id}")
   media_retrieval_response = get_media_retrieval(media_retrieval_id)
-  print(json.dumps(media_retrieval_response, indent=2))
 
   # Download the image
   if media_retrieval_response['data']['media'][0]['status'] == 'available':
     image_url = media_retrieval_response['data']['media'][0]['urlInfo']['url']
-    print(f"Image URL: {image_url}")
-    print(f"Downloading image to image-{alert_at}.jpg")
+
     # Download the image
     response = requests.get(image_url)
     with open(f'image-{alert_at}.jpg', 'wb') as f:
@@ -104,8 +95,7 @@ def main(event, _):
       print(f"Error: API request failed with status code {openai_response.status_code}")
       print(openai_response.text)
 
-    # Get the location of the vehicle:
-    # Get the vehicle location from Samsara API
+    # Get the vehicle location from the Samsara API
     location_response = requests.get(
       f'{base_url}/fleet/vehicles/locations',
       headers={

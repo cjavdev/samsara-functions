@@ -22,7 +22,6 @@ def create_media_retreival(alert_at, asset_id):
     print(f"Media retrieval already exists for {asset_id} at {alert_at.isoformat()}")
     return db.get(f'media_retrieval_{asset_id}_{alert_at.isoformat()}')
 
-  print(f"Creating media retrieval for {asset_id} at {alert_at.isoformat()}")
   # Otherwise, create a new media retrieval request.
   response = requests.post(
     f'{base_url}/cameras/media/retrieval',
@@ -38,10 +37,7 @@ def create_media_retreival(alert_at, asset_id):
     }
   )
   retrieval = response.json()['data']
-  print(f"Media retrieval with ID {retrieval['retrievalId']} created for {asset_id} at {alert_at.isoformat()}")
   db.set(f'media_retrieval_{asset_id}_{alert_at.isoformat()}', retrieval)
-  print("Media retrieval in db:")
-  print(db.get(f'media_retrieval_{asset_id}_{alert_at.isoformat()}'))
   return retrieval
 
 
@@ -52,7 +48,6 @@ def get_media_retrieval(media_retrieval_id):
       'Authorization': f'Bearer {os.environ["SAMSARA_KEY"]}'
     }
   )
-  print(response)
   return response.json()['data']['media'][0]
 
 
@@ -72,7 +67,6 @@ def get_available_slug_bug_rounds():
   for key in slug_bug_keys:
     slug_bug = db.get(key)
     if slug_bug['status'] == 'pending':
-      print(f"Slug bug checker found for {slug_bug['asset_id']} at {slug_bug['alert_time']}. Starting...")
       slug_bug = check_media_retrieval_status(slug_bug)
       db.set(key, slug_bug)
 
@@ -222,7 +216,7 @@ def start(event, _):
 def check(event, _):
   slug_bug_rounds = get_available_slug_bug_rounds()
   if len(slug_bug_rounds) == 0:
-    print("No slug bug round media is available, yet.")
+    print("No media is available, yet.")
     return
 
   for slug_bug_round in slug_bug_rounds:
@@ -232,7 +226,6 @@ def check(event, _):
       notify_players(color)
     else:
       print("No slug bug found.")
-
     mark_slug_bug_round_as_done(slug_bug_round)
 
 
